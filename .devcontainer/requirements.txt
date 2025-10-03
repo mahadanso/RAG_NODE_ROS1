@@ -1,0 +1,6 @@
+chromadb
+sentence-transformers
+openai
+numpy>=1.20
+pysqlite3-binary
+rospkg
