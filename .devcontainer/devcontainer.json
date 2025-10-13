@@ -1,5 +1,5 @@
 {
-    "name": "ROS 2 Development Container",
+    "name": "ROS 1 (Noetic) Dev Container",
     "privileged": true,
     "remoteUser": "roboticslab",
     "build": {
@@ -24,8 +24,8 @@
     },
     "containerEnv": {
         "DISPLAY": "unix:0",
-        "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST",
-        "ROS_DOMAIN_ID": "42"
+        "ROS_MASTER_URI": "http://jetson:11311",
+        "ROS_IP": "172.29.111.243"
     },
     "runArgs": [
         "--net=host",
@@ -37,5 +37,6 @@
        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached",
        "source=/dev/dri,target=/dev/dri,type=bind,consistency=cached"
     ],
-    "postCreateCommand": "sudo rosdep update && sudo rosdep install --from-paths src --ignore-src -r -y --rosdistro noetic && sudo chown -R $(whoami) /home/ros1_ws/"
+    // "postCreateCommand": "sudo rosdep update && sudo rosdep install --from-paths src --ignore-src -r -y --rosdistro noetic && sudo chown -R $(whoami) /home/ros1_ws/"
+    "postCreateCommand": "bash -c 'source /opt/ros/noetic/setup.bash && rosdep update && source devel/setup.bash'"
 }

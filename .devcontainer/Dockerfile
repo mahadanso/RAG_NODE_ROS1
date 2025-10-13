@@ -44,6 +44,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 ENV SHELL /bin/bash
 
+# ENV ROS_IP=172.18.0.1
+# ENV ROS_MASTER_URI=http://172.29.111.248:11311
+
 # Download, compile, and install a newer version of sqlite3.
 # The version 3.47.0 is a recent example.
 # RUN curl -L https://www.sqlite.org/2024/sqlite-autoconf-3470000.tar.gz | \
