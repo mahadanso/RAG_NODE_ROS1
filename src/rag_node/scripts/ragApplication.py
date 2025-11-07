@@ -32,7 +32,35 @@ def handle_prompt_request(req):
     if verbose_mode:
         rospy.loginfo("Received prompt request: %s", req.prompt)
 
-    ai_response = handle_rag_query(collection, req.prompt, conversation_history, verbose_mode, int(config.get('topK', 3)))
+    ai_response = handle_rag_query(collection, req.prompt, conversation_history, verbose_mode, int(config.get('topK', 3)), )
+
+    conversation_history.append({"role": "user", "content": req.prompt, "response": ai_response})
+
+    response = PromptResponse()
+    
+    # Keep conversation history manageable
+    if len(conversation_history) > 5:
+        conversation_history = conversation_history[-3:]
+
+    if verbose_mode:
+        rospy.loginfo("AI response: %s", ai_response)
+
+    response.response = ai_response
+    return response
+
+def handle_prompt_intent_request(req):
+    """
+    Callback function to handle prompt intent service requests.
+    """
+        
+    global conversation_history, collection, config
+    
+    verbose_mode = config.get('verboseMode', 'false').lower() == 'true'
+    
+    if verbose_mode:
+        rospy.loginfo("Received prompt request: %s", req.prompt)
+
+    ai_response = handle_rag_query(collection, req.prompt, conversation_history, verbose_mode, int(config.get('topK', 3)), intent=True)
 
     conversation_history.append({"role": "user", "content": req.prompt, "response": ai_response})
 
@@ -87,6 +115,8 @@ def rag_service_server():
     rospy.init_node('rag_service_server_node')
     s = rospy.Service('rag_service/prompt', Prompt, handle_prompt_request)
     s2 = rospy.Service('rag_service/create_collection', CreateCollection, handle_create_collection_request)
+    s3 = rospy.Service('rag_service/prompt_intent', Prompt, handle_prompt_intent_request)
+
     rospy.loginfo("RAG service server ready.")
     
     # print(f"Parent directory before reading config: {Path(__file__).parent.parent}")

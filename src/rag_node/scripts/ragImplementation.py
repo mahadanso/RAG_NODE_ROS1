@@ -162,7 +162,8 @@ def perform_similarity_search(collection, query: str, n_results: int = 5) -> Lis
                 'similarity_score': similarity_score,
                 'distance': results['distances'][0][i]
             }
-            formatted_results.append(result)
+            if result['similarity_score'] > 0.15:  # Filter out very low similarity scores
+                formatted_results.append(result)
         
         return formatted_results
         
@@ -207,7 +208,8 @@ def perform_filtered_similarity_search(collection, query: str, section_filter: s
                 'similarity_score': similarity_score,
                 'distance': results['distances'][0][i]
             }
-            formatted_results.append(result)
+            if result['similarity_score'] > 0.15:  # Filter out very low similarity scores
+                formatted_results.append(result)
         
         return formatted_results
         
@@ -316,47 +318,49 @@ def prepare_context_for_llm(query: str, search_results: List[Dict]) -> str:
     
     return "\n".join(context_parts)
 
-def generate_llm_rag_response(query: str, search_results: List[Dict], conversation_history: List[str]) -> str:
+def generate_llm_rag_response(query: str, search_results: List[Dict], conversation_history: List[str], intent=False) -> str:
     """Generate response using llama.cpp with retrieved context"""
     try:
         # Prepare context from search results
         context = prepare_context_for_llm(query, search_results)
-        
-        # Build the prompt for the LLM
-        prompt = f'''You are a helpful upanzi lab assistant. A user is asking questions about Upanzi, and I've retrieved relevant options from a document database.
 
-User Query: "{query}"
+        # Build messages for chat completion
+        messages = []
 
-Retrieved Document Information:
-{context}
-
-Please provide a helpful, short response that:
-1. Acknowledges the user's request
-2. Answers the question or comment from the retrieved options
-3. Includes relevant details
-4. Uses a friendly, conversational tone
-5. Keeps the response concise but informative
-
-Response:'''
+        if intent:
+            messages = [
+                {"role": "system", "content": "You are pepper, a humanoid robot that acts as a lab assistant here to help visitors with questions. A user is visiting the Robotics lab in Carnegie Mellon University Africa and they were asked a question. You need to determinde their intent. Please provide only 'positive' or 'negative' as answer to the query and no further text."},
+                {"role": "user", "content": f'"{query}"'}
+            ]
+        else:
+            messages = [
+                {"role": "system", "content": "You are pepper, a humanoid robot that acts as a lab assistant here to help visitors with questions. A user is visiting the Robotics lab in Carnegie Mellon University Africa and asking questions. Please provide a helpful, short response of not more than three sentences to their query."},
+                {"role": "user", "content": f'"{query}" \n Retrieved Document Information that might be relevant to the query (if any): {context}'}
+            ]
+            
+        # print(f'Prepared Messages for LLM: {messages}')ln
 
         # Generate response using IBM Granite
-        generated_response = client.completions.create(
-            model="davinci-002",
-            prompt=prompt,
-            max_tokens=512
+        generated_response = client.chat.completions.create(
+            model="HuggingFaceTB/SmolLM3-3B",
+            messages=messages,
+            # temperature=0.7,
+            # max_tokens=128,
+            # chat_template_kwargs={"enable_thinking": False}
         )
-
-        # print(f'Generated Response: {type(generated_response)}')
+        
+        # print(f'Generated Response: {generated_response.choices[0].message.content}')
 
         # Extract the generated text
         if len(generated_response.choices) > 0:
-            response_text = generated_response.choices[0].text
+            response_text = generated_response.choices[0].message.content
+            response_text = response_text.split("</think>")[-1]
 
             # Clean up the response if needed
             response_text = response_text.strip()
             
             # If response is too short, provide a fallback
-            if len(response_text) < 50:
+            if len(response_text) < 50 and not intent:
                 return generate_fallback_response(query, search_results)
             
             return response_text
@@ -372,26 +376,28 @@ def generate_fallback_response(query: str, search_results: List[Dict]) -> str:
 
     return "I don't understand what you mean. Try rephrasing your question!"
 
-def handle_rag_query(collection, query: str, conversation_history: List[str], verbose_mode: bool = False, top_k: int = 3) -> str:
+def handle_rag_query(collection, query: str, conversation_history: List[str], verbose_mode: bool = False, top_k: int = 3, intent=False) -> str:
     """Handle user query with enhanced RAG approach"""
     if verbose_mode:
         print(f"\n🔍 Searching vector database for: '{query}'...")
     
+    search_results = []
     # Perform similarity search with more results for better context
-    search_results = perform_similarity_search(collection, query, top_k)
+    if not intent:
+        search_results = perform_similarity_search(collection, query, top_k)
 
-    if not search_results:
-        if verbose_mode:
-            print("🤖 Bot: I couldn't find any documents matching your request.")
-            print("      Try rephrasing your question!")
-        return "I couldn't find any documents matching your request. Try rephrasing your question!"
+    # if not search_results:
+    #     if verbose_mode:
+    #         print("🤖 Bot: I couldn't find any documents matching your request.")
+    #         print("      Try rephrasing your question!")
+    #     return "I couldn't find any documents matching your request. Try rephrasing your question!"
 
     if verbose_mode:
         print(f"✅ Found {len(search_results)} relevant matches")
         print("🧠 Generating AI-powered response...")
     
     # Generate enhanced RAG response using IBM Granite
-    ai_response = generate_llm_rag_response(query, search_results, conversation_history)
+    ai_response = generate_llm_rag_response(query, search_results, conversation_history, intent=intent)
 
     if verbose_mode:
         print(f"\n🤖 Bot: {ai_response}")

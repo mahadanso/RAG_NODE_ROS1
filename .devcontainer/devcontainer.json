@@ -25,7 +25,7 @@
     "containerEnv": {
         "DISPLAY": "unix:0",
         "ROS_MASTER_URI": "http://jetson:11311",
-        "ROS_IP": "172.29.111.243"
+        "ROS_IP": "172.29.111.242"
     },
     "runArgs": [
         "--net=host",
