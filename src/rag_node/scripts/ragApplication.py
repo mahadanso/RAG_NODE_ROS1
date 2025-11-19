@@ -86,10 +86,10 @@ def handle_create_collection_request(req):
     verbose_mode = config.get('verboseMode', 'false').lower() == 'true'
     
     if verbose_mode:
-        rospy.loginfo("Received create collection request: %s, %s", req.collection_name, req.description)
+        rospy.loginfo("Received create collection request: %s, %s, %s", req.name, req.datafile_path, req.description)
         
     global collection
-    collection = create_collection_and_load_data(req.collection_name, req.description, config.get('dataFilePath', ''), verbose_mode)
+    collection = create_collection_and_load_data(req.name, req.description, req.datafile_path, verbose_mode)
 
     response = CreateCollectionResponse()
     

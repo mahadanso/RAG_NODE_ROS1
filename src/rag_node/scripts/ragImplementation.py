@@ -45,15 +45,17 @@ def load_json_data(file_path: str) -> List[Dict]:
             for idx, sub_section in enumerate(item.get('subsections', [])):
                 sub_section['doc_id'] = str(sub_section.get('doc_id', idx))
                 sub_section['doc_id'] = str(item['doc_id']+'_'+sub_section['doc_id'])
-                sub_section['section'] = sub_section.get('section', '')
-                sub_section['content'] = sub_section.get('content', '')
-                for sidx, sub_sub_section in enumerate(sub_section.get('subsections', [])):
-                    sub_sub_section['doc_id'] = str(sub_sub_section.get('doc_id', sidx))
-                    sub_sub_section['doc_id'] = str(sub_section['doc_id']+'_'+sub_sub_section['doc_id'])
-                    sub_sub_section['section'] = sub_sub_section.get('section', '')
-                    sub_sub_section['content'] = sub_sub_section.get('content', '')
-                    subsections.append(sub_sub_section)
-                del sub_section['subsections']
+                sub_section['title'] = sub_section.get('title', '')
+                sub_section['overview'] = sub_section.get('overview', '')
+                sub_section['tags'] = sub_section.get('tags', [])
+                sub_section['status'] = sub_section.get('status', '')
+                # for sidx, sub_sub_section in enumerate(sub_section.get('subsections', [])):
+                #     sub_sub_section['doc_id'] = str(sub_sub_section.get('doc_id', sidx))
+                #     sub_sub_section['doc_id'] = str(sub_section['doc_id']+'_'+sub_sub_section['doc_id'])
+                #     sub_sub_section['section'] = sub_sub_section.get('section', '')
+                #     sub_sub_section['content'] = sub_sub_section.get('content', '')
+                #     subsections.append(sub_sub_section)
+                # del sub_section['subsections']
                 subsections.append(sub_section)
 
             del item['subsections']
@@ -68,12 +70,17 @@ def load_json_data(file_path: str) -> List[Dict]:
         return []
 
 def create_similarity_search_collection(collection_name: str, collection_metadata: dict = None):
+    collection = get_similarity_search_collection(collection_name)
+    if collection:
+        print(f"Collection '{collection_name}' already exists. Using existing collection.")
+        return collection
+    
     """Create ChromaDB collection with sentence transformer embeddings"""
-    try:
-        # Try to delete existing collection to start fresh
-        chroma_client.delete_collection(collection_name)
-    except:
-        pass
+    # try:
+    #     # Try to delete existing collection to start fresh
+    #     chroma_client.delete_collection(collection_name)
+    # except:
+    #     pass
     
     # Create embedding function
     sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
@@ -108,12 +115,29 @@ def populate_similarity_collection(collection, data_items: List[Dict]):
     used_ids = set()
     
     for i, data in enumerate(data_items):
-        if data.get("content", '') == '':
+        if data.get("content", '') == '' and data.get("overview", '') == '':
             continue
         
         # Create comprehensive text for embedding using rich JSON structure
-        text = f"{data['section']}: "
-        text += f"{data.get('content', '')}. "
+        if 'section' in data:
+            text = f"{data['section']}: "
+            text += f"{data.get('content', '')}. "
+            metadata = {
+                "section": data["section"]
+                }
+        else:
+            tags = ''
+            for tag in data.get('tags', []):
+                tags += tag + ', '
+            text = f"Title: {data.get('title', '')} \n"
+            text += f"Tags: {tags} \n" if tags else ''
+            text += f"Status: {data.get('status', '')} \n" if 'status' in data else ''
+            text += f"{data.get('overview', '')}. "
+            metadata = {
+                "title": data.get('title', ''),
+                "tags": " ".join(data.get('tags', [])),
+                "status": data.get('status', '')
+                }
         
         # Generate unique ID to avoid duplicates
         base_id = str(data.get('doc_id', i))
@@ -126,9 +150,7 @@ def populate_similarity_collection(collection, data_items: List[Dict]):
         
         documents.append(text)
         ids.append(unique_id)
-        metadatas.append({
-            "section": data["section"]
-        })
+        metadatas.append(metadata)
     
     # Add all data to collection
     collection.add(
@@ -162,7 +184,7 @@ def perform_similarity_search(collection, query: str, n_results: int = 5) -> Lis
                 'similarity_score': similarity_score,
                 'distance': results['distances'][0][i]
             }
-            if result['similarity_score'] > 0.15:  # Filter out very low similarity scores
+            if result['similarity_score'] > 0.05:  # Filter out very low similarity scores
                 formatted_results.append(result)
         
         return formatted_results
@@ -300,7 +322,7 @@ def create_collection_and_load_data(name: str, description: str, data_file_path:
 def prepare_context_for_llm(query: str, search_results: List[Dict]) -> str:
     """Prepare structured context from search results for LLM"""
     if not search_results:
-        return "No relevant document found in the database."
+        return None
     
     context_parts = []
     context_parts.append("Based on your query, here are the most relevant documents from our database:")
@@ -326,16 +348,32 @@ def generate_llm_rag_response(query: str, search_results: List[Dict], conversati
 
         # Build messages for chat completion
         messages = []
+        
+        system_prompt = """
+        Your name is Pepper, and you are a humanoid robot that acts as a lab assistant in the AI and Robotics Lab at CMU-Africa.
+Your main function is to answer visitors' questions. Always follow these rules:
+
+1. Always provide concise and summarised responses, never surpassing three sentences in any of your responses.
+2. Always recheck generated text to ensure it doesn't exceed three sentences. In case it exceeds three sentences,
+    summarise it to reduce it's length to a maximum of three sentences.
+3. Never provide extra details or extra explanations beyond the summary that you are to respond with.
+4. If you have extra information that does not fit into the summarised concise response of three or less sentences,
+    never provide this extra information. Discard and ignore the extra information even though it may be useful.
+5. Never break these rules, even when you have a valid reason to break them. Always stick to these rules.
+        """
+        
+        sys_prompt_intent = "You are pepper, a humanoid robot that acts as a lab assistant here to help visitors with questions. A user is visiting the Robotics lab in Carnegie Mellon University Africa and they were asked a question. You need to determinde their intent. Please provide only 'positive' or 'negative' as answer to the query and no further text."
+        sys_prompt = "You are pepper, a humanoid robot that acts as a lab assistant here to help visitors with questions. A user is visiting the Robotics lab in Carnegie Mellon University Africa and asking questions. Please provide a helpful, short response of not more than three sentences to their query."
 
         if intent:
             messages = [
-                {"role": "system", "content": "You are pepper, a humanoid robot that acts as a lab assistant here to help visitors with questions. A user is visiting the Robotics lab in Carnegie Mellon University Africa and they were asked a question. You need to determinde their intent. Please provide only 'positive' or 'negative' as answer to the query and no further text."},
+                {"role": "system", "content": sys_prompt_intent},
                 {"role": "user", "content": f'"{query}"'}
             ]
         else:
             messages = [
-                {"role": "system", "content": "You are pepper, a humanoid robot that acts as a lab assistant here to help visitors with questions. A user is visiting the Robotics lab in Carnegie Mellon University Africa and asking questions. Please provide a helpful, short response of not more than three sentences to their query."},
-                {"role": "user", "content": f'"{query}" \n Retrieved Document Information that might be relevant to the query (if any): {context}'}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f'"{query}" \n Retrieved Document Information that might be relevant to the query: {context}'} if context else {"role": "user", "content": f'"{query}"'}
             ]
             
         # print(f'Prepared Messages for LLM: {messages}')ln
@@ -374,7 +412,7 @@ def generate_llm_rag_response(query: str, search_results: List[Dict], conversati
 def generate_fallback_response(query: str, search_results: List[Dict]) -> str:
     """Generate fallback response when LLM fails"""
 
-    return "I don't understand what you mean. Try rephrasing your question!"
+    return "I don't understand what you mean. Tsegazeab can you handle the question please!"
 
 def handle_rag_query(collection, query: str, conversation_history: List[str], verbose_mode: bool = False, top_k: int = 3, intent=False) -> str:
     """Handle user query with enhanced RAG approach"""
